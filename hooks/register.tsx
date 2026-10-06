@@ -50,6 +50,16 @@ let crewIds: string[] = []
 // a helper's kind, kept: a finished helper can leave the list, and its row then still names its kind
 const crewKind = new Map<string, string>()
 let crewSince = 0
+// The background runs, never a helper: an entry the helper list knows (by id or description)
+// is a helper that the turn-end list or an older build recorded (owner, 6 Oct: 'Test running'
+// for 9 h while nothing ran).
+async function liveBg($: EngineInterface) {
+  const bg = (await read($, bgRef)) ?? []
+  if (!bg.length) return bg
+  const agents = await $.agent.list().catch(() => [])
+  const known = new Set(agents.flatMap(a => [a.id, a.description, a.teammateId].filter(Boolean) as string[]))
+  return bg.filter(b => !known.has(b.id) && !known.has(b.words))
+}
 async function readCrew($: EngineInterface): Promise<string> {
   const list = (await $.agent.list()).filter(a => a.parentId === undefined && a.teammateId === undefined)
   const busy = (st: string) => st === 'running' || st === 'pending' || st === 'waiting'
@@ -226,7 +236,7 @@ async function deskStatus($: EngineInterface, e: Site) {
   const now = await $.clock.now()
   const usage = await $.session.usage()
   const helpers = (await $.agent.list()).filter(a => a.status === 'running')
-  const bg = (await read($, bgRef)) ?? []
+  const bg = await liveBg($)
   const tests = bg.filter(b => TEST_WORDS.test(b.words))
   const jobs = bg.filter(b => !TEST_WORDS.test(b.words))
   const lim = (k: string) => usage.rateLimits.find(r => r.kind === k)
@@ -645,11 +655,17 @@ export const register: Register = on => {
       await update($, spinRef, n => ((n ?? 0) + 1) % SPIN.length)
     })
     $.clock.every(70, async () => {
-      if ((await read($, liveRef)) === null && ((await read($, bgRef)) ?? []).length === 0) return
+      if ((await read($, liveRef)) === null && (await liveBg($)).length === 0) return
       await update($, sweepRef, n => ((n ?? 0) + 1) % 4000)
     })
     // the clocks and the helper count: one write a second, only while a turn or a helper runs
     $.clock.every(1000, async () => {
+      try {
+        const kept = await liveBg($)
+        if (kept.length !== ((await read($, bgRef)) ?? []).length) await update($, bgRef, () => kept)
+      } catch {
+        // the list is pruned again next second
+      }
       try {
         await palette($)
       } catch {
@@ -1269,7 +1285,7 @@ export const register: Register = on => {
     }
     const live = await read($, liveRef)
     if (live === null) {
-      const bg = (await read($, bgRef)) ?? []
+      const bg = await liveBg($)
       if (bg.length === 0) return next(e)
       try {
         // the turn is over, a background run is not: a slow breathing dot, no spinner, and you
