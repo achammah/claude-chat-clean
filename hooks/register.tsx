@@ -22,8 +22,13 @@ export type { Burst, Call, Helper, Kind, Live, Mode, Run, Settings, Turn }
 const PANE = 'chat-clean-feed'
 const LANES = 'chat-clean-helpers'
 const ACCENT = '#d97757'
-const PEER = '#a78bfa'
-const CHIP = '#3b3b3b'
+// inks set by the theme: light themes get darker steps
+let PEER = '#a78bfa'
+let CHIP = '#3b3b3b'
+let GREEN_I = '#7fbf8f'
+let VIOLET_I = '#b9acec'
+let RED_I = '#e06c6c'
+let AMBER_I = '#d8b36a'
 const DOT_LIVE = '●'
 const DOT = '○'
 const SHUT = '›'
@@ -90,8 +95,8 @@ type Els = { Box: El; Text: El; Button: El; Markdown: El }
 // A quiet name in a 5-column margin: 'you' in a cool ink beside your words, 'claude' in a warm
 // ink beside the reply (a Markdown element takes no colour, so the reply keeps the terminal's ink).
 const NAME_W = 7
-const YOU_INK = '#9fb4c8'
-const CLAUDE_INK = '#e3c4a2'
+let YOU_INK = '#9fb4c8'
+let CLAUDE_INK = '#e3c4a2'
 // The time each of your messages was stored, by its uuid (the UserMessage requestId), drawn at
 // the right edge. A message from before this session has no time: none drawn.
 const promptAt = new Map<string, number>()
@@ -189,7 +194,16 @@ async function palette($: EngineInterface) {
       // keep the last answer
     }
   }
-  return themeLight ? LIGHT : DARK
+  const L = themeLight
+  YOU_INK = L ? '#2f4f6f' : '#9fb4c8'
+  CLAUDE_INK = L ? '#8a4a1f' : '#e3c4a2'
+  PEER = L ? '#5b3fb5' : '#a78bfa'
+  CHIP = L ? '#e4e6eb' : '#3b3b3b'
+  GREEN_I = L ? '#1f7a4a' : '#7fbf8f'
+  VIOLET_I = L ? '#5b3fb5' : '#b9acec'
+  RED_I = L ? '#b42318' : '#e06c6c'
+  AMBER_I = L ? '#8a5a00' : '#d8b36a'
+  return L ? LIGHT : DARK
 }
 let accountCache = { at: 0, email: '' }
 async function accountEmail($: EngineInterface, home: string) {
@@ -637,6 +651,11 @@ export const register: Register = on => {
     // the clocks and the helper count: one write a second, only while a turn or a helper runs
     $.clock.every(1000, async () => {
       try {
+        await palette($)
+      } catch {
+        // keep the last inks
+      }
+      try {
         const crew = await readCrew($)
         if (crew !== ((await read($, crewRef)) ?? '')) await update($, crewRef, () => crew)
         else if (crew) await update($, tickRef, n => (n ?? 0) + 1)
@@ -936,7 +955,7 @@ export const register: Register = on => {
             <x.Text dimColor>{String(list.length)}</x.Text>
             <x.Text>
               {[...cells].map((ch, i) => (
-                <x.Text key={`c${i}`} color={ch === '●' ? '#7fbf8f' : ch === '◐' ? '#b9acec' : ch === '✕' ? '#e06c6c' : undefined} dimColor={ch === '○'}>{ch}</x.Text>
+                <x.Text key={`c${i}`} color={ch === '●' ? GREEN_I : ch === '◐' ? VIOLET_I : ch === '✕' ? RED_I : undefined} dimColor={ch === '○'}>{ch}</x.Text>
               ))}
             </x.Text>
             <x.Text dimColor>{`${kd}/${list.length}${kf ? ` · ${kf} failed` : ''}`}</x.Text>
@@ -952,7 +971,7 @@ export const register: Register = on => {
         : []
       return (
         <x.Box flexDirection="column">
-          {line(x, { live, text: live ? SPIN[((await read($, spinRef)) ?? 0) % SPIN.length] : failed ? '✕' : '●', color: failed ? '#e06c6c' : live ? '#b9acec' : '#7fbf8f' }, head.join(' · '), roomOf(e as Site, 12), chevron(e as Site, x, `batch-${helperIds[0]}`, isOpen, toggle))}
+          {line(x, { live, text: live ? SPIN[((await read($, spinRef)) ?? 0) % SPIN.length] : failed ? '✕' : '●', color: failed ? RED_I : live ? VIOLET_I : GREEN_I }, head.join(' · '), roomOf(e as Site, 12), chevron(e as Site, x, `batch-${helperIds[0]}`, isOpen, toggle))}
           {[...kinds.entries()].map(([k, l]) => kindRow(k, l))}
           {names as never}
         </x.Box>
@@ -1007,7 +1026,7 @@ export const register: Register = on => {
       return (
         <x.Box flexDirection="row" marginTop={1}>
           <x.Box width={NAME_W} flexShrink={0}>
-            <x.Text color={err.guard ? PEER : err.act ? 'red' : '#d8b36a'}>!</x.Text>
+            <x.Text color={err.guard ? PEER : err.act ? 'red' : AMBER_I}>!</x.Text>
           </x.Box>
           <x.Box flexGrow={1} flexShrink={1}>
             <x.Text>
@@ -1187,11 +1206,11 @@ export const register: Register = on => {
         for (const k of m) kinds.set(k.kind, [...(kinds.get(k.kind) ?? []), k])
         const mark = SPIN[((await read($, spinRef)) ?? 0) % SPIN.length]!
         const cell = (st: string) => (st === 'done' ? '●' : st === 'running' ? '◐' : '✕')
-        const ink = (st: string) => (st === 'done' ? '#7fbf8f' : st === 'running' ? '#b9acec' : '#e06c6c')
+        const ink = (st: string) => (st === 'done' ? GREEN_I : st === 'running' ? VIOLET_I : RED_I)
         return (
           <x.Box flexDirection="column">
             <x.Box flexDirection="row" gap={1}>
-              <x.Text color="#b9acec">{running ? mark : '●'}</x.Text>
+              <x.Text color={VIOLET_I}>{running ? mark : '●'}</x.Text>
               <x.Text wrap="truncate-end">{head}</x.Text>
             </x.Box>
             {[...kinds.entries()].map(([kind, list]) => (
