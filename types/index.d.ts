@@ -71,6 +71,7 @@ declare module 'claude-code' {
       tick: number
       spin: number
       sweep: number
+      crew: string
       bg: { id: string; words: string; at: number }[]
       helpers: number
       cursor: string | null

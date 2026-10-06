@@ -36,6 +36,36 @@ const tickRef = atom({ plugin: 'chat-clean', key: 'tick' } as const, 0)
 // only the drawings that show it read it.
 const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 const spinRef = atom({ plugin: 'chat-clean', key: 'spin' } as const, 0)
+// Helpers launched together show in the line above the input (Claude Code draws its own
+// 'background agents launched' block, and a mod cannot redraw it). The helpers launched since none was running form one
+// batch: total, done, running, failed, time, then one line per kind. JSON, '' when no helper runs.
+const crewRef = atom({ plugin: 'chat-clean', key: 'crew' } as const, '')
+type Crew = { since: number; members: { id: string; kind: string; state: 'done' | 'running' | 'failed' }[] }
+let crewIds: string[] = []
+// a helper's kind, kept: a finished helper can leave the list, and its row then still names its kind
+const crewKind = new Map<string, string>()
+let crewSince = 0
+async function readCrew($: EngineInterface): Promise<string> {
+  const list = (await $.agent.list()).filter(a => a.parentId === undefined && a.teammateId === undefined)
+  const busy = (st: string) => st === 'running' || st === 'pending' || st === 'waiting'
+  if (!list.some(a => busy(a.status))) {
+    crewIds = []
+    return ''
+  }
+  if (crewIds.length === 0) crewSince = await $.clock.now()
+  for (const a of list) if (busy(a.status) && !crewIds.includes(a.id)) crewIds.push(a.id)
+  for (const a of list) if (a.type) crewKind.set(a.id, a.type)
+  const byId = new Map(list.map(a => [a.id, a]))
+  const crew: Crew = {
+    since: crewSince,
+    members: crewIds.map(id => {
+      const a = byId.get(id)
+      const st = a?.status ?? 'completed'
+      return { id, kind: (a?.type ?? crewKind.get(id) ?? 'helper').replace(/^general-purpose$/, 'general'), state: busy(st) ? 'running' : st === 'failed' || st === 'killed' ? 'failed' : 'done' }
+    }),
+  }
+  return JSON.stringify(crew)
+}
 const sweepRef = atom({ plugin: 'chat-clean', key: 'sweep' } as const, 0)
 // Background runs of the main conversation, by tool_use id, until their notification arrives.
 // While one runs after the turn, a line above the input says so and you can keep typing.
@@ -566,6 +596,13 @@ export const register: Register = on => {
     })
     // the clocks and the helper count: one write a second, only while a turn or a helper runs
     $.clock.every(1000, async () => {
+      try {
+        const crew = await readCrew($)
+        if (crew !== ((await read($, crewRef)) ?? '')) await update($, crewRef, () => crew)
+        else if (crew) await update($, tickRef, n => (n ?? 0) + 1)
+      } catch {
+        // no helper line this second
+      }
       const live = await read($, liveRef)
       const ids = (await read($, helperIdsRef)) ?? []
       let anyHelper = false
@@ -1062,6 +1099,46 @@ export const register: Register = on => {
         return band === null ? next(e) : (band as never)
       } catch {
         return next(e)
+      }
+    }
+    const crewJson = (await read($, crewRef)) ?? ''
+    if (crewJson) {
+      try {
+        const crew = JSON.parse(crewJson) as Crew
+        const x = els($, e)
+        await read($, tickRef)
+        const now = await $.clock.now()
+        const m = crew.members
+        const n = (st: string) => m.filter(k => k.state === st).length
+        const running = n('running')
+        const failed = n('failed')
+        const head = [`${m.length} helper${m.length > 1 ? 's' : ''}`, n('done') ? `${n('done')} done` : '', running ? `${running} running` : '', failed ? `${failed} failed` : '', F.elapsed(now - crew.since)].filter(Boolean).join(' · ')
+        const kinds = new Map<string, typeof m>()
+        for (const k of m) kinds.set(k.kind, [...(kinds.get(k.kind) ?? []), k])
+        const mark = SPIN[((await read($, spinRef)) ?? 0) % SPIN.length]!
+        const cell = (st: string) => (st === 'done' ? '●' : st === 'running' ? '◐' : '✕')
+        const ink = (st: string) => (st === 'done' ? '#7fbf8f' : st === 'running' ? '#b9acec' : '#e06c6c')
+        return (
+          <x.Box flexDirection="column">
+            <x.Box flexDirection="row" gap={1}>
+              <x.Text color="#b9acec">{running ? mark : '●'}</x.Text>
+              <x.Text wrap="truncate-end">{head}</x.Text>
+            </x.Box>
+            {[...kinds.entries()].map(([kind, list]) => (
+              <x.Box key={`k-${kind}`} flexDirection="row" gap={1} paddingLeft={2}>
+                <x.Text dimColor>{F.fit(kind, 18)}</x.Text>
+                <x.Text>
+                  {list.map((k, i) => (
+                    <x.Text key={`c${i}`} color={ink(k.state)}>{cell(k.state)}</x.Text>
+                  ))}
+                </x.Text>
+                <x.Text dimColor>{`${list.filter(k => k.state === 'done').length}/${list.length}`}</x.Text>
+              </x.Box>
+            ))}
+          </x.Box>
+        ) as never
+      } catch {
+        // fall through to the background-run line
       }
     }
     const live = await read($, liveRef)

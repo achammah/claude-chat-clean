@@ -254,7 +254,12 @@ export function fit(text: string, room: number): string {
 
 /** The first line of a message that is not empty, for a one-line message row. */
 export function headLine(text: string, room: number): string {
-  return fit(firstLine(readable(text.replace(/<[^>]+>/g, ' '))), Math.max(8, room))
+  return fit(noPaths(firstLine(readable(text.replace(/<[^>]+>/g, ' ')))), Math.max(8, room))
+}
+
+/** An absolute path in a one-line label shrinks to its last part: a label never shows a private folder. */
+export function noPaths(text: string): string {
+  return text.replace(/(?:~|\/(?:Users|home|private|tmp|var|opt|Volumes))(?:\/[^\s/'"`)]+)+/g, m => m.split('/').filter(Boolean).pop() ?? m)
 }
 
 /** A helper's status JSON (`{"type":"idle_notification",…,"result":"…"}`) reads as words: the state,
