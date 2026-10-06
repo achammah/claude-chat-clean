@@ -757,9 +757,14 @@ export const register: Register = on => {
       if (Array.isArray(tasks)) {
         const now = await $.clock.now()
         const old = (await read($, bgRef)) ?? []
+        // a task the helper list knows is a helper, whatever type the event gives it
+        const agents = await $.agent.list().catch(() => [])
+        const helperIds = new Set(agents.flatMap(a => [a.id, a.description, a.teammateId].filter(Boolean) as string[]))
         await update($, bgRef, () =>
           tasks
-            .filter(t => t.status === 'running' || t.status === 'pending')
+            // shells and monitors only: helpers (subagents, teammates) have their own line, and an idle
+            // teammate stays 'running' for hours (owner, 6 Oct: 'Test running … while nothing is running')
+            .filter(t => (t.status === 'running' || t.status === 'pending') && !/agent|teammate/i.test(String(t.type ?? '')) && !helperIds.has(t.id) && !helperIds.has(t.description))
             .map(t => ({ id: t.id, words: t.description || t.command || t.type, at: old.find(o => o.id === t.id || o.words === t.description)?.at ?? now })),
         )
       }
