@@ -336,12 +336,98 @@ export function framesOfView(text: string): Frame[] {
   return out
 }
 
-/** A body cut to its first paragraph, with how many lines were left out. */
+/** A helper's JSON report as a verdict card (owner pick, 6 Oct, helper-json page look 1): a status
+ *  chip and its sub-status, what was checked, one score line per list of judged items (dots, then
+ *  "N of M PASS"), and the report file. Null for anything that is not a JSON object. */
+export type ReportCard = {
+  status?: { text: string; tone: 'ok' | 'bad' | 'mid' }
+  sub?: string
+  target?: string
+  scores: { label: string; marks: ('ok' | 'bad' | 'mid')[]; pass: number }[]
+  file?: string
+  fields: number
+}
+const tone = (v: string): 'ok' | 'bad' | 'mid' =>
+  /^(done|pass|passed|ok|success|succeeded|green|complete|completed|confirms?)\b/i.test(v) ? 'ok' : /^(fail|failed|error|blocked|red|contradicts|refused)\b/i.test(v) ? 'bad' : 'mid'
+export function reportCard(body: string): ReportCard | null {
+  const t = body.trim()
+  if (!t.startsWith('{')) return null
+  let o: Record<string, unknown>
+  try {
+    const j = JSON.parse(t) as unknown
+    if (!j || typeof j !== 'object' || Array.isArray(j)) return null
+    o = j as Record<string, unknown>
+  } catch {
+    return null
+  }
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+  const head = str(o.status) ?? str(o.verdict) ?? str(o.result)
+  const card: ReportCard = { scores: [], fields: Object.keys(o).length }
+  if (head) card.status = { text: firstLine(head).slice(0, 40), tone: tone(head) }
+  const sub = str(o.review_status) ?? str(o.summary) ?? str(o.message) ?? (head === str(o.result) ? undefined : str(o.result))
+  if (sub) card.sub = firstLine(sub).replace(/[-_]/g, ' ').slice(0, 120)
+  for (const v of Object.values(o)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const n = v as Record<string, unknown>
+      const name = str(n.name) ?? str(n.title) ?? str(n.id)
+      if (name) {
+        const extra = ['model', 'profile'].map(k => str(n[k])).filter(Boolean) as string[]
+        if (typeof n.temperature === 'number') extra.push(`temp ${n.temperature}`)
+        card.target = [name, ...extra].join(' · ')
+        break
+      }
+    }
+  }
+  for (const [k, v] of Object.entries(o)) {
+    if (!Array.isArray(v) || !v.length || typeof v[0] !== 'object') continue
+    const marks = (v as Record<string, unknown>[]).map(it => tone(String(it.verdict ?? it.status ?? it.result ?? '')))
+    if (marks.every(m => m === 'mid')) continue
+    card.scores.push({ label: k.replace(/_/g, ' '), marks, pass: marks.filter(m => m === 'ok').length })
+  }
+  for (const [k, v] of Object.entries(o)) {
+    const f = str(v)
+    if (f && /(_file|_path|^file|^path|report)$/i.test(k)) {
+      card.file = f.split('/').filter(Boolean).pop() ?? f
+      break
+    }
+  }
+  return card.status || card.scores.length ? card : null
+}
+
+/** A body cut to its first paragraph, with how many lines were left out. A body that is a JSON
+ *  object (a helper's typed result) never prints raw: its status-like fields read as one line.
+ *  Owner, 6 Oct: a helper's JSON report filled the screen under its header line. The lead is
+ *  capped at 6 lines and 600 characters; the rest is counted and stays one ctrl+o away. */
 export function leadOf(body: string): { lead: string; more: number } {
   const t = body.replace(/\r/g, '').trim()
+  const total = t.split('\n').filter(l => l.trim()).length
+  if (/^[[{]/.test(t)) {
+    let words = ''
+    try {
+      const j = JSON.parse(t) as unknown
+      if (Array.isArray(j)) words = `${j.length} item${j.length === 1 ? '' : 's'}`
+      else if (j && typeof j === 'object') {
+        const o = j as Record<string, unknown>
+        const bits: string[] = []
+        for (const k of ['status', 'verdict', 'review_status', 'result', 'summary', 'message']) {
+          const v = o[k]
+          if (typeof v === 'string' && v.trim()) bits.push(`${k.replace(/_/g, ' ')} ${firstLine(v).slice(0, 120)}`)
+        }
+        for (const [k, v] of Object.entries(o)) if (Array.isArray(v) && v.length) bits.push(`${v.length} ${k.replace(/_/g, ' ')}`)
+        words = bits.slice(0, 5).join(' · ')
+      }
+    } catch {
+      words = ''
+    }
+    return { lead: words || 'a structured report', more: total }
+  }
   const at = t.indexOf('\n\n')
-  if (at < 0) return { lead: t, more: 0 }
-  return { lead: t.slice(0, at), more: t.slice(at + 2).split('\n').filter(l => l.trim()).length }
+  let lead = at < 0 ? t : t.slice(0, at)
+  const leadLines = lead.split('\n')
+  if (leadLines.length > 6) lead = leadLines.slice(0, 6).join('\n')
+  if (lead.length > 600) lead = lead.slice(0, 600).replace(/\s+\S*$/, '') + '…'
+  const shown = lead.split('\n').filter(l => l.trim()).length
+  return { lead, more: Math.max(0, total - shown) }
 }
 
 /** A call that never joins a run: its own line (a helper, a question). */

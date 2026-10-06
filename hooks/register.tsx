@@ -1066,12 +1066,44 @@ export const register: Register = on => {
       return (
         <x.Box flexDirection="column" marginTop={1}>
           {frames.map((f, i) => {
-            const { lead, more } = F.leadOf(f.body)
+            const card = F.reportCard(f.body)
+            const { lead, more } = card ? { lead: '', more: 0 } : F.leadOf(f.body)
             const head = [f.from ?? from ?? 'helper', f.state, f.at !== undefined ? hhmm(f.at) : '', f.summary].filter(Boolean).join(' · ')
             return (
               <x.Box key={`team-${i}`} flexDirection="column" marginTop={i ? 1 : 0}>
                 {line(x, { live: false, text: '⇄', color: PEER }, head, room)}
-                {lead ? (
+                {card ? (
+                  <x.Box paddingLeft={PAD + 2} flexDirection="column">
+                    <x.Box flexDirection="row" gap={1}>
+                      {card.status ? <x.Text color={card.status.tone === 'ok' ? GREEN_I : card.status.tone === 'bad' ? RED_I : AMBER_I} bold>{`${card.status.tone === 'ok' ? '✓' : card.status.tone === 'bad' ? '✕' : '●'} ${card.status.text}`}</x.Text> : null}
+                      {card.sub ? <x.Text>{card.sub}</x.Text> : null}
+                    </x.Box>
+                    {card.target ? (
+                      <x.Box flexDirection="row" gap={1}>
+                        <x.Text dimColor>{'target '}</x.Text>
+                        <x.Text wrap="truncate-end">{card.target}</x.Text>
+                      </x.Box>
+                    ) : null}
+                    {card.scores.map(sc => (
+                      <x.Box key={`sc-${sc.label}`} flexDirection="row" gap={1}>
+                        <x.Text dimColor>{F.fit(sc.label, 12).padEnd(7)}</x.Text>
+                        <x.Text>
+                          {sc.marks.slice(0, 24).map((m, k) => (
+                            <x.Text key={`m${k}`} color={m === 'ok' ? GREEN_I : m === 'bad' ? RED_I : AMBER_I}>●</x.Text>
+                          ))}
+                        </x.Text>
+                        <x.Text>{`${sc.pass} of ${sc.marks.length} pass`}</x.Text>
+                      </x.Box>
+                    ))}
+                    {card.file ? (
+                      <x.Box flexDirection="row" gap={1}>
+                        <x.Text dimColor>{'report '}</x.Text>
+                        <x.Text color={YOU_INK}>{card.file}</x.Text>
+                      </x.Box>
+                    ) : null}
+                    <x.Text dimColor>ctrl+o shows the whole report</x.Text>
+                  </x.Box>
+                ) : lead ? (
                   <x.Box paddingLeft={PAD + 2} flexDirection="column">
                     <x.Markdown text={lead} />
                     {more ? <x.Text dimColor>{`+${more} more line${more > 1 ? 's' : ''} · ctrl+o shows all`}</x.Text> : null}
