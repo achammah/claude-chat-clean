@@ -192,19 +192,30 @@ const DARK = { empty: '#3a3a3e', g0: '#e9fff0', g1: '#bfe8c8', g2: '#9ed2a8', g3
 const LIGHT = { empty: '#d9d9de', g0: '#0f5132', g1: '#2f7d55', g2: '#4f9a72', g3: '#6fb08c', t0: '#0b4f45', t1: '#1f7a6a', orgBg: '#ececef', orgFg: '#6b6b73', boardBg: '#e3f3ee', boardFg: '#1f7a6a', usageBg: '#ececf2', green: '#2f8a4a', violet: '#6a54c4', helperBg: '#ece8fa', testBg: '#fbe9e2', testFg: '#b5502e' }
 let themeAt = 0
 let themeLight = false
-async function palette($: EngineInterface) {
+let osLight: boolean | null = null
+// set once this session draws the desktop band: its clock then keeps the desktop's inks too
+let onDesktop = false
+async function palette($: EngineInterface, desktop = false) {
   const now = await $.clock.now()
   if (now - themeAt > 30000) {
     themeAt = now
     try {
       const row = (await $.config.list()).find(r => r.key === 'theme') as { value?: unknown } | undefined
-      const v = String(row?.value ?? '')
-      themeLight = /light/i.test(v)
+      themeLight = /light/i.test(String(row?.value ?? ''))
     } catch {
       // keep the last answer
     }
+    // owner, 6 Oct (a light desktop app with dark pills): the desktop app follows the system
+    // appearance, not Claude Code's /config theme. On macOS, AppleInterfaceStyle reads "Dark"
+    // in dark mode and is absent in light mode.
+    try {
+      const r = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle'])
+      osLight = !/dark/i.test(String(r.stdout ?? ''))
+    } catch {
+      osLight = null
+    }
   }
-  const L = themeLight
+  const L = desktop && osLight !== null ? osLight : themeLight
   YOU_INK = L ? '#2f4f6f' : '#9fb4c8'
   CLAUDE_INK = L ? '#8a4a1f' : '#e3c4a2'
   PEER = L ? '#5b3fb5' : '#a78bfa'
@@ -230,7 +241,8 @@ async function accountEmail($: EngineInterface, home: string) {
   return accountCache.email
 }
 async function deskStatus($: EngineInterface, e: Site) {
-  const P = await palette($)
+  onDesktop = true
+  const P = await palette($, true)
   const x = els($, e)
   const tick = (await read($, tickRef)) ?? 0
   const now = await $.clock.now()
@@ -667,7 +679,7 @@ export const register: Register = on => {
         // the list is pruned again next second
       }
       try {
-        await palette($)
+        await palette($, onDesktop)
       } catch {
         // keep the last inks
       }
