@@ -1241,12 +1241,12 @@ export const register: Register = on => {
         const ink = (st: string) => (st === 'done' ? GREEN_I : st === 'running' ? VIOLET_I : RED_I)
         return (
           <x.Box flexDirection="column">
-            <x.Box flexDirection="row" gap={1}>
+            <x.Box flexDirection="row" gap={1} paddingLeft={PAD}>
               <x.Text color={VIOLET_I}>{running ? mark : '●'}</x.Text>
               <x.Text wrap="truncate-end">{head}</x.Text>
             </x.Box>
             {[...kinds.entries()].map(([kind, list]) => (
-              <x.Box key={`k-${kind}`} flexDirection="row" gap={1} paddingLeft={2}>
+              <x.Box key={`k-${kind}`} flexDirection="row" gap={1} paddingLeft={PAD + 2}>
                 <x.Text dimColor>{F.fit(kind, 18)}</x.Text>
                 <x.Text>
                   {list.map((k, i) => (
@@ -1284,7 +1284,7 @@ export const register: Register = on => {
         const dot = ['·', '•', '●', '•'][phase]!
         return (
           <x.Box flexDirection="column">
-            <x.Box flexDirection="row" gap={1}>
+            <x.Box flexDirection="row" gap={1} paddingLeft={PAD}>
               <x.Text color={ACCENT}>{dot}</x.Text>
               <x.Text wrap="truncate-end">{F.fit(`${what} · ${label}${more}`, cols - tail.length - 4)}</x.Text>
               <x.Text dimColor wrap="truncate-end">{tail}</x.Text>
