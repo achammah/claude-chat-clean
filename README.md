@@ -102,7 +102,9 @@ Open sessions reload the mod as soon as its files change. To remove it, delete t
 | **Questions** | Each answered question becomes one line: `? Which colour → Red` |
 | **Errors** | One line that says what happened and what to do: `! Connection lost · check your internet · send again to retry` |
 | **Slash commands** | The answer is one quiet line under the command |
-| **Other sessions** | Messages from other sessions and helpers fold to one line each |
+| **Helper messages** | A helper's report reads as one line (who, state, time, summary), then its first paragraph, formatted. ctrl+o shows all |
+| **Safeguard stops** | One line that says the model's safeguards stopped the reply and what to do: edit your message, or switch model |
+| **Light mode** | The desktop band switches to pale tints when Claude Code's theme is light |
 
 Labels never show a raw command, a path or an id.
 
