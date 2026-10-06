@@ -95,6 +95,12 @@ const CLAUDE_INK = '#e3c4a2'
 // The time each of your messages was stored, by its uuid (the UserMessage requestId), drawn at
 // the right edge. A message from before this session has no time: none drawn.
 const promptAt = new Map<string, number>()
+// helper messages by stored message uuid, parsed from the raw text at append (the row's text has lost the envelope)
+const teamAt = new Map<string, F.Frame[]>()
+function hhmm(ms: number) {
+  const d = new Date(ms)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
 type Site = { surface: string; requestId: string; viewport?: { columns: number; isFullscreen?: boolean } }
 
 async function settingsOf($: EngineInterface): Promise<Settings> {
@@ -166,7 +172,41 @@ function chevron(e: Site, x: Els, key: string, isOpen: boolean, onPress: () => u
 // weekly limits used), and a second row, only while something runs, with one pill per running
 // helper, background job and test. The desktop lays text out wider than the engine counts, so the
 // pills stay short and only the work pills may grow.
+// Light mode: // The band's tints follow the theme row of /config: light themes get pale tints and darker inks.
+const DARK = { empty: '#3a3a3e', g0: '#e9fff0', g1: '#bfe8c8', g2: '#9ed2a8', g3: '#5f9e6c', t0: '#f0fff6', t1: '#bfeadc', orgBg: '#26262a', orgFg: '#a9a7a0', boardBg: '#1d2e2a', boardFg: '#86d0bd', usageBg: '#24242a', green: '#8fd19e', violet: '#b9acec', helperBg: '#29243d', testBg: '#3a2620', testFg: '#e39a7c' }
+const LIGHT = { empty: '#d9d9de', g0: '#0f5132', g1: '#2f7d55', g2: '#4f9a72', g3: '#6fb08c', t0: '#0b4f45', t1: '#1f7a6a', orgBg: '#ececef', orgFg: '#6b6b73', boardBg: '#e3f3ee', boardFg: '#1f7a6a', usageBg: '#ececf2', green: '#2f8a4a', violet: '#6a54c4', helperBg: '#ece8fa', testBg: '#fbe9e2', testFg: '#b5502e' }
+let themeAt = 0
+let themeLight = false
+async function palette($: EngineInterface) {
+  const now = await $.clock.now()
+  if (now - themeAt > 30000) {
+    themeAt = now
+    try {
+      const row = (await $.config.list()).find(r => r.key === 'theme') as { value?: unknown } | undefined
+      const v = String(row?.value ?? '')
+      themeLight = /light/i.test(v)
+    } catch {
+      // keep the last answer
+    }
+  }
+  return themeLight ? LIGHT : DARK
+}
+let accountCache = { at: 0, email: '' }
+async function accountEmail($: EngineInterface, home: string) {
+  const now = await $.clock.now()
+  if (now - accountCache.at < 60000) return accountCache.email
+  accountCache.at = now
+  try {
+    const base = (await $.env.get('CLAUDE_CONFIG_DIR')) || home
+    const j = JSON.parse(String(await $.fs.read(`${base}/.claude.json`))) as { oauthAccount?: { emailAddress?: string } }
+    accountCache.email = (j.oauthAccount?.emailAddress ?? '').trim()
+  } catch {
+    // keep the last answer
+  }
+  return accountCache.email
+}
 async function deskStatus($: EngineInterface, e: Site) {
+  const P = await palette($)
   const x = els($, e)
   const tick = (await read($, tickRef)) ?? 0
   const now = await $.clock.now()
@@ -194,21 +234,21 @@ async function deskStatus($: EngineInterface, e: Site) {
   }
   const usagePill =
     h5 || wk ? (
-      <Box key="usage" flexDirection="row" gap={1} alignItems="center" backgroundColor="#24242a" paddingX={1} flexShrink={0}>
-        {h5 ? icon('clock', '#8fd19e') : null}
-        {h5 ? <Text color="#8fd19e" bold>{`${Math.round(h5.percentUsed)}%`}</Text> : null}
+      <Box key="usage" flexDirection="row" gap={1} alignItems="center" backgroundColor={P.usageBg} paddingX={1} flexShrink={0}>
+        {h5 ? icon('clock', P.green) : null}
+        {h5 ? <Text color={P.green} bold>{`${Math.round(h5.percentUsed)}%`}</Text> : null}
         {h5 ? <Text dimColor>5h</Text> : null}
         {h5 && wk ? <Text dimColor>·</Text> : null}
-        {wk ? icon('cal', '#b9acec') : null}
-        {wk ? <Text color="#b9acec" bold>{`${Math.round(wk.percentUsed)}%`}</Text> : null}
+        {wk ? icon('cal', P.violet) : null}
+        {wk ? <Text color={P.violet} bold>{`${Math.round(wk.percentUsed)}%`}</Text> : null}
         {wk ? <Text dimColor>week</Text> : null}
       </Box>
     ) : null
   const spinMark = ['◐', '◓', '◑', '◒'][Math.floor(tick) % 4]
   const workPills = [
-    ...helpers.map((h, i) => pill(`h${i}`, '#29243d', [<Text key="s" color="#b9acec">{spinMark}</Text>, <Text key="k" color="#b9acec" bold>Helper</Text>, <Text key="w">{F.fit(h.description, 28)}</Text>], 1)),
-    ...jobs.map((j, i) => pill(`j${i}`, '#29243d', [<Text key="s" color="#b9acec">{spinMark}</Text>, <Text key="k" color="#b9acec" bold>Job</Text>, <Text key="w">{F.fit(j.words, 28)}</Text>, <Text key="e" dimColor>{F.elapsed(now - j.at)}</Text>], 1)),
-    ...tests.map((t, i) => pill(`t${i}`, '#3a2620', [icon('flask', '#e39a7c'), <Text key="k" color="#e39a7c" bold>Test</Text>, <Text key="w">{F.fit(t.words, 28)}</Text>, <Text key="e" dimColor>{F.elapsed(now - t.at)}</Text>], 1)),
+    ...helpers.map((h, i) => pill(`h${i}`, P.helperBg, [<Text key="s" color={P.violet}>{spinMark}</Text>, <Text key="k" color={P.violet} bold>Helper</Text>, <Text key="w">{F.fit(h.description, 28)}</Text>], 1)),
+    ...jobs.map((j, i) => pill(`j${i}`, P.helperBg, [<Text key="s" color={P.violet}>{spinMark}</Text>, <Text key="k" color={P.violet} bold>Job</Text>, <Text key="w">{F.fit(j.words, 28)}</Text>, <Text key="e" dimColor>{F.elapsed(now - j.at)}</Text>], 1)),
+    ...tests.map((t, i) => pill(`t${i}`, P.testBg, [icon('flask', P.testFg), <Text key="k" color={P.testFg} bold>Test</Text>, <Text key="w">{F.fit(t.words, 28)}</Text>, <Text key="e" dimColor>{F.elapsed(now - t.at)}</Text>], 1)),
   ]
   if (!usagePill && workPills.length === 0) return null
   return (
@@ -726,6 +766,10 @@ export const register: Register = on => {
           }
       } else if (m.type === 'user') {
         const text = typeof m.content === 'string' ? m.content : (m.content as { type: string; text?: string }[]).map(b => (b.type === 'text' ? b.text ?? '' : '')).join('\n')
+        if (e.uuid && text.includes('<teammate-message')) {
+          const frames = F.framesOfRaw(text)
+          if (frames.length) teamAt.set(String(e.uuid), frames)
+        }
         const ids = [...text.matchAll(/<(?:tool-use-id|task-id)>([^<]+)<\/(?:tool-use-id|task-id)>/g)].map(x => x[1])
         if (ids.length) await update($, bgRef, l => (l ?? []).filter(x => !ids.includes(x.id)))
       }
@@ -963,7 +1007,7 @@ export const register: Register = on => {
       return (
         <x.Box flexDirection="row" marginTop={1}>
           <x.Box width={NAME_W} flexShrink={0}>
-            <x.Text color={err.act ? 'red' : '#d8b36a'}>!</x.Text>
+            <x.Text color={err.guard ? PEER : err.act ? 'red' : '#d8b36a'}>!</x.Text>
           </x.Box>
           <x.Box flexGrow={1} flexShrink={1}>
             <x.Text>
@@ -994,6 +1038,32 @@ export const register: Register = on => {
     const x = els($, e)
     const kind = e.props.origin.kind
     const from = e.props.from?.name
+    // helper messages (a teammate block, or a helper's status JSON): one header line per message,
+    // then its first paragraph as formatted text; ctrl+o keeps the whole of it
+    const frames = kind === 'composer' || kind === 'bridge' || kind === 'sdk' || kind === 'task-notification' ? [] : teamAt.get(String(e.requestId)) ?? F.framesOfView(e.props.text)
+    if (frames.length) {
+      if (hidden(s, 'peer')) return nothing(x.Box) as never
+      const room = roomOf(e, 14)
+      return (
+        <x.Box flexDirection="column" marginTop={1}>
+          {frames.map((f, i) => {
+            const { lead, more } = F.leadOf(f.body)
+            const head = [f.from ?? from ?? 'helper', f.state, f.at !== undefined ? hhmm(f.at) : '', f.summary].filter(Boolean).join(' · ')
+            return (
+              <x.Box key={`team-${i}`} flexDirection="column" marginTop={i ? 1 : 0}>
+                {line(x, { live: false, text: '⇄', color: PEER }, head, room)}
+                {lead ? (
+                  <x.Box paddingLeft={PAD + 2} flexDirection="column">
+                    <x.Markdown text={lead} />
+                    {more ? <x.Text dimColor>{`+${more} more line${more > 1 ? 's' : ''} · ctrl+o shows all`}</x.Text> : null}
+                  </x.Box>
+                ) : null}
+              </x.Box>
+            )
+          })}
+        </x.Box>
+      ) as never
+    }
     const isPerson = kind === 'composer' || kind === 'bridge' || kind === 'sdk' || kind === 'scheduled-trigger' || (kind === 'unclassified' && from === undefined && !F.isHookText(e.props.text))
     if (isPerson) {
       if (hidden(s, 'you')) return nothing(x.Box) as never

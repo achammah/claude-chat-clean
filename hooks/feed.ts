@@ -275,6 +275,75 @@ function readable(text: string): string {
   } catch { return text }
 }
 
+/** One helper message inside a teammate block: who sent it, its state, its one-line summary, its
+ *  markdown body. Owner, 6 Oct: helper reports drew as raw JSON under "you" ('this needs proper
+ *  formatting, esp. since the json format allows it'). */
+export type Frame = { from?: string; state?: string; at?: number; summary?: string; body: string }
+
+function frameOf(body: string, attrs: Record<string, string>): Frame {
+  const t = body.trim()
+  const f: Frame = { from: attrs.teammate_id ?? attrs.from, summary: attrs.summary, body: t }
+  if (!t.startsWith('{')) return f
+  try {
+    const j = JSON.parse(t) as Record<string, unknown>
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+    const kind = str(j.type)?.replace(/_notification$/, '').replace(/_/g, ' ')
+    const at = str(j.timestamp) ? Date.parse(String(j.timestamp)) : NaN
+    return {
+      from: str(j.from) ?? f.from,
+      state: kind === 'idle' ? 'waiting' : kind,
+      at: Number.isFinite(at) ? at : undefined,
+      summary: f.summary ?? str(j.summary),
+      body: str(j.result) ?? str(j.message) ?? str(j.text) ?? str(j.reason) ?? '',
+    }
+  } catch {
+    return f
+  }
+}
+
+/** The frames of a stored message's raw text (`<teammate-message teammate_id=… summary=…>…</…>`). */
+export function framesOfRaw(raw: string): Frame[] {
+  const out: Frame[] = []
+  for (const m of raw.matchAll(/<teammate-message\b([^>]*)>([\s\S]*?)<\/teammate-message>/g)) {
+    const attrs: Record<string, string> = {}
+    for (const a of m[1]!.matchAll(/(\w+)="([^"]*)"/g)) attrs[a[1]!] = a[2]!
+    out.push(frameOf(m[2]!, attrs))
+  }
+  return out
+}
+
+/** The same from a row's text when the stored message was not seen (a resumed session): each
+ *  one-line JSON object is a frame; the text between two of them is one plain frame whose first
+ *  line is its summary. Empty when the text holds no helper JSON. */
+export function framesOfView(text: string): Frame[] {
+  if (!/^\s*\{"type":"/m.test(text)) return []
+  const out: Frame[] = []
+  let plain: string[] = []
+  const flush = () => {
+    const t = plain.join('\n').trim()
+    plain = []
+    if (!t) return
+    const [head, ...rest] = t.split('\n')
+    out.push({ summary: head!.trim(), body: rest.join('\n').trim() })
+  }
+  for (const l of text.split('\n')) {
+    if (/^\s*\{"type":"/.test(l)) {
+      flush()
+      out.push(frameOf(l, {}))
+    } else plain.push(l)
+  }
+  flush()
+  return out
+}
+
+/** A body cut to its first paragraph, with how many lines were left out. */
+export function leadOf(body: string): { lead: string; more: number } {
+  const t = body.replace(/\r/g, '').trim()
+  const at = t.indexOf('\n\n')
+  if (at < 0) return { lead: t, more: 0 }
+  return { lead: t.slice(0, at), more: t.slice(at + 2).split('\n').filter(l => l.trim()).length }
+}
+
 /** A call that never joins a run: its own line (a helper, a question). */
 export const standsAlone = (tool: string) => isAgentTool(tool) || tool === 'AskUserQuestion'
 
@@ -313,20 +382,30 @@ export const PRESET_HELP: Record<Preset, string> = {
 
 /** An API error reply as one quiet line saying what happened, whose problem it is, and what
  * happens next. `null` for a reply that is not an error. */
-export function errorLine(text: string): { words: string; act: boolean } | null {
+export function errorLine(text: string): { words: string; act: boolean; guard?: boolean } | null {
   const t = (text || '').trim()
-  if (!/^(API Error|Error:|Request timed out|Connection error|Claude AI usage limit|Credit balance|Invalid API key|Please run \/login)/i.test(t)) return null
+  // owner, 6 Oct: 'have in the one line also what happened … if I have a big issue with safeguard and I have
+  // instructions on how to move back up the conversation or switch model I want to see it'
+  const guardWho = t.match(/^(?:API Error:\s*)?(.{1,40}?)'s safeguards/i)?.[1]
+  if (guardWho && /stopped the response above|continuing/i.test(t))
+    return { words: `${guardWho}'s safeguards cut the reply above · Claude continues · esc esc goes back to an earlier message`, act: false, guard: true }
+  if (/stopped by a safety classifier/i.test(t))
+    return { words: 'A safeguard cut the reply above · Claude continues · esc esc goes back to an earlier message', act: false, guard: true }
+  if (!/^(API Error|Error:|Request timed out|Connection error|Claude AI usage limit|Credit balance|Invalid API key|Please run \/login|Prompt is too long)/i.test(t)) return null
   const s = t.toLowerCase()
-  if (/529|overloaded/.test(s)) return { words: "Claude's servers are busy · not your setup · Claude Code retries", act: false }
+  if (/safeguards|usage policy|\/legal\/aup/.test(s))
+    return { words: `${guardWho ?? 'The model'}'s safeguards stopped this reply · often a false alarm · esc esc to edit your message, or /model to switch`, act: true, guard: true }
+  if (/529|overloaded/.test(s)) return { words: "Claude's servers are busy · not your setup · Claude Code retries, or send again", act: false }
   if (/usage limit|rate.?limit|429/.test(s)) {
     const reset = t.match(/reset[s]?\s*(?:at)?\s*([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?)/i)
-    return { words: `Usage limit reached${reset ? ` · resets ${reset[1]}` : ''} · nothing is lost`, act: true }
+    return { words: `Usage limit reached${reset ? ` · resets ${reset[1]}` : ''} · nothing is lost · /model to switch`, act: true }
   }
+  if (/prompt is too long|context length|too many tokens/.test(s)) return { words: 'This chat is too long for the model · run /compact · nothing is lost', act: true }
   if (/401|403|authentication|login|api key|oauth/.test(s)) return { words: 'Login needed · run /login · nothing is lost', act: true }
   if (/credit|billing/.test(s)) return { words: 'Billing problem on the account · nothing is lost', act: true }
   if (/connection|econn|enotfound|fetch failed|network|socket|timed out|timeout/.test(s)) return { words: 'Connection lost · check your internet · send again to retry', act: false }
   if (/5\d\d|server_error|internal/.test(s)) return { words: "Server error on Claude's side · your work is kept · send a message to try again", act: false }
-  if (/400|invalid_request|prompt is too long|max_output|context/.test(s)) return { words: 'Claude refused this request · ctrl+o shows why', act: true }
+  if (/400|invalid_request|max_output/.test(s)) return { words: 'Claude refused this request · ctrl+o shows why · esc esc to edit your message', act: true }
   return { words: 'Claude Code hit an error · ctrl+o shows it', act: false }
 }
 

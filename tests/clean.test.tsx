@@ -276,7 +276,12 @@ test('an API error reply is one line in the name column: amber when Claude Code 
   mock.clock(on, { now: Date.parse('2026-10-05T12:00:00Z') })
   world(on)
   await start($)
-  expect(F.errorLine('API Error: 529 Overloaded')).toEqual({ words: "Claude's servers are busy · not your setup · Claude Code retries", act: false })
+  expect(F.errorLine('API Error: 529 Overloaded')).toEqual({ words: "Claude's servers are busy · not your setup · Claude Code retries, or send again", act: false })
+  expect(F.errorLine("API Error: Sonnet 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup).")).toEqual({ words: "Sonnet 5.5's safeguards stopped this reply · often a false alarm · esc esc to edit your message, or /model to switch", act: true, guard: true })
+  expect(F.errorLine('Prompt is too long')).toEqual({ words: 'This chat is too long for the model · run /compact · nothing is lost', act: true })
+  const frames = F.framesOfRaw('<teammate-message teammate_id="docs" summary="Docs built">\n{"type":"idle_notification","from":"docs","timestamp":"2026-10-06T06:25:17.980Z","result":"Built.\\n\\n- a\\n- b"}\n</teammate-message>')
+  expect(frames[0]).toMatchObject({ from: 'docs', state: 'waiting', summary: 'Docs built' })
+  expect(F.leadOf(frames[0]!.body)).toEqual({ lead: 'Built.', more: 2 })
   expect(F.errorLine('Claude AI usage limit reached, resets 3pm')?.act).toBe(true)
   expect(F.errorLine('A normal reply')).toBeNull()
   for (const surface of SURFACES) {
