@@ -1121,12 +1121,18 @@ export const register: Register = on => {
       return (
         <x.Box flexDirection="column" marginTop={1}>
           {frames.map((f, i) => {
-            const card = F.reportCard(f.body)
-            const { lead, more } = card ? { lead: '', more: 0 } : F.leadOf(f.body)
+            const parts = F.splitJson(f.body)
+            const card = F.reportCard(parts.json ?? f.body)
+            const { lead, more } = card && !parts.json ? { lead: '', more: 0 } : F.leadOf(parts.text)
             const head = [f.from ?? from ?? 'helper', f.state, f.at !== undefined ? hhmm(f.at) : '', f.summary].filter(Boolean).join(' · ')
             return (
               <x.Box key={`team-${i}`} flexDirection="column" marginTop={i ? 1 : 0}>
                 {line(x, { live: false, text: '⇄', color: PEER }, head, room)}
+                {lead && card ? (
+                  <x.Box paddingLeft={PAD + 2} flexDirection="column">
+                    <x.Markdown text={lead} />
+                  </x.Box>
+                ) : null}
                 {card ? (
                   <x.Box paddingLeft={PAD + 2} flexDirection="column">
                     <x.Box flexDirection="row" gap={1}>
@@ -1148,6 +1154,13 @@ export const register: Register = on => {
                           ))}
                         </x.Text>
                         <x.Text>{`${sc.pass} of ${sc.marks.length} pass`}</x.Text>
+                      </x.Box>
+                    ))}
+                    {card.lists.map(li => (
+                      <x.Box key={`li-${li.label}`} flexDirection="row" gap={1}>
+                        <x.Text dimColor>{F.fit(li.label, 12).padEnd(7)}</x.Text>
+                        <x.Text bold>{String(li.n)}</x.Text>
+                        {li.first ? <x.Text dimColor wrap="truncate-end">{`· ${li.first}`}</x.Text> : null}
                       </x.Box>
                     ))}
                     {card.file ? (

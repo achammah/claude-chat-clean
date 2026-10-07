@@ -345,6 +345,7 @@ export type ReportCard = {
   target?: string
   scores: { label: string; marks: ('ok' | 'bad' | 'mid')[]; pass: number }[]
   file?: string
+  lists: { label: string; n: number; first?: string }[]
   fields: number
 }
 const tone = (v: string): 'ok' | 'bad' | 'mid' =>
@@ -362,8 +363,8 @@ export function reportCard(body: string): ReportCard | null {
   }
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
   const head = str(o.status) ?? str(o.verdict) ?? str(o.result)
-  const card: ReportCard = { scores: [], fields: Object.keys(o).length }
-  if (head) card.status = { text: firstLine(head).slice(0, 40), tone: tone(head) }
+  const card: ReportCard = { scores: [], lists: [], fields: Object.keys(o).length }
+  if (head) card.status = { text: firstLine(head).replace(/[_-]/g, ' ').slice(0, 40), tone: tone(head) }
   const sub = str(o.review_status) ?? str(o.summary) ?? str(o.message) ?? (head === str(o.result) ? undefined : str(o.result))
   if (sub) card.sub = firstLine(sub).replace(/[-_]/g, ' ').slice(0, 120)
   for (const v of Object.values(o)) {
@@ -381,17 +382,49 @@ export function reportCard(body: string): ReportCard | null {
   for (const [k, v] of Object.entries(o)) {
     if (!Array.isArray(v) || !v.length || typeof v[0] !== 'object') continue
     const marks = (v as Record<string, unknown>[]).map(it => tone(String(it.verdict ?? it.status ?? it.result ?? '')))
-    if (marks.every(m => m === 'mid')) continue
+    if (marks.every(m => m === 'mid')) {
+      // a list with no verdicts (questions, items, findings): its size and its first entry
+      const it0 = (v as Record<string, unknown>[])[0] ?? {}
+      const first = ['question', 'title', 'name', 'text', 'summary', 'id'].map(f => str(it0[f])).find(Boolean)
+      card.lists.push({ label: k.replace(/_/g, ' '), n: v.length, first: first ? firstLine(first).slice(0, 140) : undefined })
+      continue
+    }
     card.scores.push({ label: k.replace(/_/g, ' '), marks, pass: marks.filter(m => m === 'ok').length })
   }
   for (const [k, v] of Object.entries(o)) {
     const f = str(v)
-    if (f && /(_file|_path|^file|^path|report)$/i.test(k)) {
+    if (f && (/(_file|_path|^file|^path|report|dossier)$/i.test(k) || /^\/[^\s]+\.[a-z0-9]{1,5}$/i.test(f))) {
       card.file = f.split('/').filter(Boolean).pop() ?? f
       break
     }
   }
-  return card.status || card.scores.length ? card : null
+  if (!card.status && !card.sub) {
+    // no status field: the first plain sentence the object carries stands in for one
+    const first = Object.values(o).map(str).find(v => v && !v.startsWith('/') && v.length > 8)
+    if (first) card.sub = firstLine(first).slice(0, 120)
+  }
+  return card.status || card.scores.length || card.lists.length || card.sub ? card : null
+}
+
+/** A helper's message often is a sentence, then its typed result as JSON on the next line.
+ *  Owner, 7 Oct: that JSON printed raw under the sentence. Split them: the text reads as text,
+ *  the object becomes a verdict card. */
+export function splitJson(body: string): { text: string; json?: string } {
+  const lines = body.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^\s*\{/.test(lines[i]!)) continue
+    for (let j = lines.length; j > i; j--) {
+      const chunk = lines.slice(i, j).join('\n').trim()
+      try {
+        const v = JSON.parse(chunk) as unknown
+        if (v && typeof v === 'object' && !Array.isArray(v))
+          return { text: [...lines.slice(0, i), ...lines.slice(j)].join('\n').trim(), json: chunk }
+      } catch {
+        // try a shorter chunk
+      }
+    }
+  }
+  return { text: body }
 }
 
 /** A body cut to its first paragraph, with how many lines were left out. A body that is a JSON
