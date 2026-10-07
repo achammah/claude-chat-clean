@@ -1,0 +1,25 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-chat-clean",
+  "description": "Marketplace for chat-clean, a Claude Code mod that keeps your messages and Claude's replies and folds each turn's tool calls into one line.",
+  "owner": {
+    "name": "metzgerwebsites",
+    "url": "https://github.com/metzgerwebsites"
+  },
+  "plugins": [
+    {
+      "name": "chat-clean",
+      "source": "./",
+      "description": "A clean chat view for Claude Code: your messages and Claude's replies stay, the tool calls fold into one line per turn. /feed clean, normal or raw",
+      "version": "0.1.0",
+      "author": {
+        "name": "Assem Chammah"
+      },
+      "homepage": "https://github.com/achammah/claude-chat-clean",
+      "repository": "https://github.com/metzgerwebsites/claude-chat-clean",
+      "license": "MIT",
+      "category": "productivity",
+      "tags": ["mods", "chat", "ui", "feed"]
+    }
+  ]
+}
