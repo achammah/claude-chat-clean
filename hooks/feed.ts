@@ -406,6 +406,26 @@ export function reportCard(body: string): ReportCard | null {
   return card.status || card.scores.length || card.lists.length || card.sub ? card : null
 }
 
+/** Lines Claude Code puts in front of a helper's report: a self-closing marker tag
+ *  (`<artifact-content-authored-by-others/>`) and the notice that follows it. Owner, 7 Oct:
+ *  they showed as the report's first lines. They go; a relay of others' content stays as a flag. */
+export function stripPreamble(body: string): { body: string; relayed: boolean } {
+  let relayed = false
+  const kept = body.split('\n').filter(l => {
+    const t = l.trim()
+    if (/^<[a-z][a-z0-9-]*\s*\/>$/i.test(t)) {
+      if (/authored-by-others/i.test(t)) relayed = true
+      return false
+    }
+    if (/^This agent read .* written by people other than you/i.test(t)) {
+      relayed = true
+      return false
+    }
+    return true
+  })
+  return { body: kept.join('\n').trim(), relayed }
+}
+
 /** A helper's message often is a sentence, then its typed result as JSON on the next line.
  *  Owner, 7 Oct: that JSON printed raw under the sentence. Split them: the text reads as text,
  *  the object becomes a verdict card. */

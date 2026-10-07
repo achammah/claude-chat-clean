@@ -1121,10 +1121,11 @@ export const register: Register = on => {
       return (
         <x.Box flexDirection="column" marginTop={1}>
           {frames.map((f, i) => {
-            const parts = F.splitJson(f.body)
+            const pre = F.stripPreamble(f.body)
+            const parts = F.splitJson(pre.body)
             const card = F.reportCard(parts.json ?? f.body)
             const { lead, more } = card && !parts.json ? { lead: '', more: 0 } : F.leadOf(parts.text)
-            const head = [f.from ?? from ?? 'helper', f.state, f.at !== undefined ? hhmm(f.at) : '', f.summary].filter(Boolean).join(' · ')
+            const head = [f.from ?? from ?? 'helper', f.state, f.at !== undefined ? hhmm(f.at) : '', f.summary, pre.relayed ? 'relays content written by others' : ''].filter(Boolean).join(' · ')
             return (
               <x.Box key={`team-${i}`} flexDirection="column" marginTop={i ? 1 : 0}>
                 {line(x, { live: false, text: '⇄', color: PEER }, head, room)}
