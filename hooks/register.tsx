@@ -110,6 +110,10 @@ let CLAUDE_INK = '#e3c4a2'
 // The time each of your messages was stored, by its uuid (the UserMessage requestId), drawn at
 // the right edge. A message from before this session has no time: none drawn.
 const promptAt = new Map<string, number>()
+// owner, 7 Oct: the steps line goes under Claude's reply, not under your message. A turn whose
+// reply was written after its steps draws the line under that reply (its last text message).
+const turnReply = new Map<string, string>()
+const replyTurn = new Map<string, string>()
 // helper messages by stored message uuid, parsed from the raw text at append (the row's text has lost the envelope)
 const teamAt = new Map<string, F.Frame[]>()
 function hhmm(ms: number) {
@@ -446,7 +450,7 @@ async function questionRow($: EngineInterface, e: Site, x: Els, c: Call) {
  * What one call's site draws (ToolUse row, or one call of a ToolGroup), by the settings.
  * Returns null when the call is not this mod's to draw (raw mode, a call no event recorded).
  */
-async function drawCall($: EngineInterface, e: Site, x: Els, s: Settings, id: string): Promise<unknown | null | 'none'> {
+async function drawCall($: EngineInterface, e: Site, x: Els, s: Settings, id: string, underReply = false): Promise<unknown | null | 'none'> {
   const runId = await get($, $.state.get({ ...callRunRef, id }))
   if (runId === undefined) return null
   const run = await get($, $.state.get({ ...runRef, id: runId }))
@@ -465,6 +469,7 @@ async function drawCall($: EngineInterface, e: Site, x: Els, s: Settings, id: st
   const folded = F.verdict(s, { ...r, turnOpened: false })
   const body = async (v: F.Verdict) => (v === 'run' ? runLine($, e, x, s, runId, run, !s.group || live === null) : v === 'call' ? callLine($, e, x, s, c) : null)
   if (folded === 'turn') {
+    if (!underReply && turnReply.has(c.turnId)) return 'none'
     if (!t || t.done === 0) return turnOpen ? body(F.verdict(s, { ...r, turnOpened: true })) : 'none'
     const opened = turnOpen ? await body(F.verdict(s, { ...r, turnOpened: true })) : null
     return (
@@ -828,6 +833,12 @@ export const register: Register = on => {
       if (m.type === 'assistant' && e.door === 'response') {
         const hasText = m.content.some(b => b.type === 'text' && typeof b.text === 'string' && b.text.trim() !== '')
         if (hasText) {
+          const tid = await read($, turnNowRef)
+          const turn = tid ? await get($, $.state.get({ ...turnRef, id: tid })) : undefined
+          if (tid && turn?.first && e.uuid) {
+            turnReply.set(tid, String(e.uuid))
+            replyTurn.set(String(e.uuid), tid)
+          }
           await update($, cursorRef, () => null)
           await update($, liveRef, l => (l ? { ...l, label: 'Writing', tool: '' } : l))
           await update($, burstOpenRef, () => null)
@@ -1069,7 +1080,7 @@ export const register: Register = on => {
           </x.Box>
         </x.Box>
       ) as never
-    return (
+    const row = (
       <x.Box flexDirection="row" marginTop={e.props.isFirstOfReply ? 1 : 0}>
         <x.Box width={NAME_W} flexShrink={0}>
           <x.Text color={CLAUDE_INK} dimColor>{e.props.isFirstOfReply ? 'claude' : ''}</x.Text>
@@ -1077,6 +1088,17 @@ export const register: Register = on => {
         <x.Box flexGrow={1} flexShrink={1}>
           <x.Markdown text={e.props.text} />
         </x.Box>
+      </x.Box>
+    )
+    const tid = replyTurn.get(String(e.requestId))
+    if (!tid || turnReply.get(tid) !== String(e.requestId)) return row as never
+    const turn = await get($, $.state.get({ ...turnRef, id: tid }))
+    const steps = turn?.first ? await drawCall($, e as Site, x, s, turn.first, true) : null
+    if (!steps || steps === 'none') return row as never
+    return (
+      <x.Box flexDirection="column">
+        {row}
+        {steps as never}
       </x.Box>
     ) as never
   })
