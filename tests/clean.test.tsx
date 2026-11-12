@@ -256,6 +256,21 @@ test('name column: your message reads "you", the reply reads "claude", desktop k
   shot('you-terminal', await t.drawn())
   expect(await t.find({ type: 'Text', text: 'you' })).toBeDefined()
   expect(await t.find({ type: 'Text', text: 'fix the login bug' })).toBeDefined()
+  // a long message wraps into lines of the same width, every piece on the band
+  const long = 'the login page loses the session after a refresh and the token is never sent again, so every request after that comes back as 401 until the person signs in once more'
+  const tl = await $.ui.mount({ ...you, props: { ...you.props, text: long }, surface: 'terminal' })
+  const drawn = await tl.drawn()
+  shot('you-long', drawn)
+  const texts: { props?: Record<string, unknown>; children?: unknown[] }[] = []
+  const walk = (n: unknown) => {
+    if (!n || typeof n !== 'object') return
+    const node = n as { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+    if (node.type === 'Text') texts.push(node)
+    for (const c of node.children ?? []) walk(c)
+  }
+  walk(drawn)
+  expect(texts.length).toBeGreaterThan(6)
+  expect(texts.every(n => typeof n.props?.backgroundColor === 'string')).toBe(true)
   const d = await $.ui.mount({ ...you, surface: 'desktop' })
   expect(await d.drawn()).toMatchObject({ type: 'engine' })
   const reply = { plugin: PLUGIN, component: 'AssistantMessage' as const, props: { text: 'Fixed: the token now refreshes.', isFirstOfReply: true }, viewport: VIEW }
