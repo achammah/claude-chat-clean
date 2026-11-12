@@ -29,6 +29,8 @@ let GREEN_I = '#7fbf8f'
 let VIOLET_I = '#b9acec'
 let RED_I = '#e06c6c'
 let AMBER_I = '#d8b36a'
+// the band behind your own messages, so they stand out from Claude's replies when scrolling
+let YOU_BG = '#2a3a4f'
 const DOT_LIVE = '●'
 const DOT = '○'
 const SHUT = '›'
@@ -143,6 +145,29 @@ function els($: EngineInterface, e: Site): Els {
 function roomOf(e: Site, less: number) {
   return Math.max(16, (e.viewport?.columns ?? 100) - less)
 }
+// Your words cut into lines of at most `width` columns: words stay whole where they fit, a
+// longer one is cut, your own line breaks stay. The band behind your message is drawn from these.
+function bandLines(text: string, width: number): string[] {
+  const out: string[] = []
+  for (const para of text.replace(/\t/g, '  ').split(/\r?\n/)) {
+    let line = ''
+    for (const word of para.split(/(\s+)/)) {
+      if (word === '') continue
+      if (line.length + word.length <= width) {
+        line += word
+        continue
+      }
+      if (line.trim() !== '') out.push(line)
+      line = /^\s+$/.test(word) ? '' : word
+      while (line.length > width) {
+        out.push(line.slice(0, width))
+        line = line.slice(width)
+      }
+    }
+    out.push(line)
+  }
+  return out.length > 0 ? out : ['']
+}
 const hidden = (s: Settings, k: Kind) => s.hide.includes(k)
 const isSearch = (tool: string) => tool === 'WebSearch' || tool === 'WebFetch'
 
@@ -228,6 +253,7 @@ async function palette($: EngineInterface, desktop = false) {
   VIOLET_I = L ? '#5b3fb5' : '#b9acec'
   RED_I = L ? '#b42318' : '#e06c6c'
   AMBER_I = L ? '#8a5a00' : '#d8b36a'
+  YOU_BG = L ? '#dbe7f6' : '#2a3a4f'
   return L ? LIGHT : DARK
 }
 let accountCache = { at: 0, email: '' }
@@ -1188,27 +1214,30 @@ export const register: Register = on => {
     if (isPerson) {
       if (hidden(s, 'you')) return nothing(x.Box) as never
       if (e.surface === 'desktop') return next(e)
+      // Your message on a band: the terminal paints no Box background, only a Text's, under its
+      // characters. So the words are cut into lines here and each line is padded to the full
+      // width, every piece a Text on the band: one solid block, as Claude Code draws your prompt.
+      const at = promptAt.has(String(e.requestId)) ? F.clock(promptAt.get(String(e.requestId))!) : ''
+      const slash = e.props.text.match(/^\/[\w:-]+/)?.[0]
+      const room = roomOf(e, NAME_W + 4) - (at ? at.length + 2 : 0)
+      const lines = bandLines(e.props.text, room)
+      const band = (props: Record<string, unknown>, text: string, key: string) => <x.Text key={key} backgroundColor={YOU_BG} {...props}>{text}</x.Text>
       return (
-        <x.Box flexDirection="row" marginTop={1}>
-          <x.Box width={NAME_W} flexShrink={0}>
-            <x.Text color={YOU_INK} dimColor>you</x.Text>
-          </x.Box>
-          <x.Box flexGrow={1} flexShrink={1}>
-            {/^\/[\w:-]+/.test(e.props.text) ? (
-              // a slash command: its name in your ink, its arguments dim
-              <x.Text>
-                <x.Text color={YOU_INK}>{e.props.text.match(/^\/[\w:-]+/)![0]}</x.Text>
-                <x.Text dimColor>{e.props.text.replace(/^\/[\w:-]+/, '')}</x.Text>
-              </x.Text>
-            ) : (
-              <x.Text color={YOU_INK}>{e.props.text}</x.Text>
-            )}
-          </x.Box>
-          {promptAt.has(String(e.requestId)) ? (
-            <x.Box flexShrink={0} paddingLeft={2}>
-              <x.Text dimColor>{F.clock(promptAt.get(String(e.requestId))!)}</x.Text>
-            </x.Box>
-          ) : null}
+        <x.Box flexDirection="column" marginTop={1}>
+          {lines.map((l, i) => (
+            <x.Text key={`l${i}`} backgroundColor={YOU_BG} wrap="truncate-end">
+              {band({}, ' ', 'lead')}
+              {band({ color: YOU_INK, bold: true }, i === 0 ? 'you' : '   ', 'name')}
+              {band({}, ' '.repeat(NAME_W - 4), 'gap')}
+              {i === 0 && slash && l.startsWith(slash)
+                // a slash command: its name in bold, its arguments in your ink
+                ? [band({ color: YOU_INK, bold: true }, slash, 'cmd'), band({ color: YOU_INK }, l.slice(slash.length).trimEnd(), 'args')]
+                : band({ color: YOU_INK }, l.trimEnd(), 'words')}
+              {band({}, ' '.repeat(Math.max(0, room - l.trimEnd().length)), 'pad')}
+              {at ? band({ dimColor: true }, i === 0 ? `  ${at}` : ' '.repeat(at.length + 2), 'at') : null}
+              {band({}, ' ', 'tail')}
+            </x.Text>
+          ))}
         </x.Box>
       ) as never
     }

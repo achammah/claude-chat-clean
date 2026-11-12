@@ -94,7 +94,7 @@ Open sessions reload the mod as soon as its files change. To remove it, delete t
 
 | Part | What you see |
 |---|---|
-| **Name column** | `you` beside your messages, `claude` beside the replies, the time of each message at the right edge |
+| **Name column** | `you` beside your messages, `claude` beside the replies, the time of each message at the right edge. Your messages sit on a tinted band, so your turns stand out when you scroll |
 | **Folded turns** | Every tool call of a turn becomes one line, `○ 7 steps this turn ›`. The arrow opens it in place |
 | **Working line** | While Claude works: a spinner, the step in plain words (`Reading app.py`), and the time |
 | **Helpers** | Helpers launched together show above the input: `3 helpers · 1 done · 2 running · 24s`, one line per kind below |
